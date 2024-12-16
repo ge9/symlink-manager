@@ -62,26 +62,28 @@ def apply_additions(config):
     for src, dst, is_dir in sorted(tasks, key=lambda x: len(x[0]), reverse=True):
         if os.path.islink(src):
             if os.readlink(src) == dst:
-                print(f"INFO: {src} is already configured correctly. skipping.")
+                print(f"INFO: {src} is already configured correctly. Skipping.")
                 continue
             else:
-                print(f"ERROR: {src} is a wrong symlink. skipping.")
+                print(f"ERROR: {src} is a wrong symlink (the target should be {dst} but is {os.readlink(src)}). Skipping.")
+                continue
                 # os.remove(src)
         elif os.path.exists(src):
             if os.path.exists(dst):
-                print(f"ERROR: {dst} already exists. skipping {src}.")
+                print(f"ERROR: {dst} already exists. Skipping {src}.")
             if not confirm_move(src, dst):
                 print(f"INFO: {src} の移動をキャンセルしました。")
                 continue
             shutil.move(src, dst)
         else:
+            print(f"INFO: {src} doesn't exist. Creating new one.")
             if is_dir:
                 os.makedirs(dst, exist_ok=True)
             else:
                 open(dst, 'a').close()  # 空ファイルを作成
 
         os.symlink(dst, src)
-        print(f"リンク作成: {src} -> {dst}")
+        print(f"INFO: Creating link: {src} -> {dst}")
 
 def apply_removals(config):
     """設定に基づいてディレクトリ削除操作を行う。"""
@@ -122,6 +124,33 @@ def apply_removals(config):
         else:
             print(f"警告: {src} は正しいリンクではありません。")
 
+def create_template(storage_id, config):
+    """指定された storage_id のテンプレートを作成する。"""
+    if storage_id not in config:
+        print(f"ERROR: Storage ID '{storage_id}' が設定ファイルに存在しません。")
+        return
+
+    base_dir = config["dirs"].get(storage_id)
+    if not base_dir:
+        print(f"ERROR: '{storage_id}' のベースディレクトリが設定されていません。")
+        return
+
+    os.makedirs(base_dir, exist_ok=True)
+    print(f"ベースディレクトリ作成: {base_dir}")
+
+    for raw_path, _ in config[storage_id].items():
+        is_dir = raw_path.endswith("/")
+        path = os.path.join(base_dir, normalize_path(raw_path.replace("HOME/", "").rstrip("/")))
+
+        if os.path.exists(path):
+            print(f"INFO: {path} は既に存在します。スキップします。")
+        elif is_dir:
+            os.makedirs(path, exist_ok=True)
+            print(f"フォルダ作成: {path}")
+        else:
+            open(path, 'a').close()  # 空ファイルを作成
+            print(f"ファイル作成: {path}")
+
 def apply(config_path):
     """設定ファイルを適用する。"""
     config = read_config(config_path)
@@ -131,8 +160,8 @@ def apply(config_path):
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) != 2:
-        print("Usage: python symlink_manager.py <config_path>")
+    if len(sys.argv) < 2:
+        print("Usage: python symlink_manager.py <config_path> [<storage_id>]")
         sys.exit(1)
 
     config_file = sys.argv[1]
@@ -141,4 +170,10 @@ if __name__ == "__main__":
         print(f"設定ファイルが見つかりません: {config_file}")
         sys.exit(1)
 
-    apply(config_file)
+    config = read_config(config_file)
+
+    if len(sys.argv) == 3:
+        storage_id = sys.argv[2]
+        create_template(storage_id, config)
+    else:
+        apply(config_file)
